@@ -101,18 +101,27 @@ async def send_attendance_report(period: str, target_type: str = None, webhook_u
         )
         logger.info("已发送群消息")
 
-    # ── 阈值通知：异常次数 ≥ NOTIFY_THRESHOLD 时，给当事人发通知 ──
-    if config.NOTIFY_THRESHOLD > 0 and summary.has_problems:
+    # ── 阈值通知：按周期检查阈值，给当事人发通知 ──
+    import json as _json
+    thresholds = {}
+    try:
+        thresholds = _json.loads(config.NOTIFY_THRESHOLDS) if config.NOTIFY_THRESHOLDS.strip() else {}
+    except Exception:
+        pass
+
+    threshold = thresholds.get(summary.period, 0)
+    if threshold > 0 and summary.has_problems:
         for rec in summary.records:
             total = rec.absence_count + rec.late_display + rec.early_leave_display
-            if total >= config.NOTIFY_THRESHOLD:
+            if total >= threshold:
+                period_map = {"today": "今日", "week": "本周", "month": "本月"}
                 try:
                     notify_msg = (
                         f"### ⚠️ 考勤异常提醒\n\n"
                         f"**统计周期**: {summary.date_range}\n\n"
-                        f"您在本次统计中累计 **{total}** 次考勤异常"
+                        f"您在{period_map.get(summary.period, summary.period)}累计 **{total}** 次考勤异常"
                         f"（缺勤{rec.absence_count}次，迟到{rec.late_display}次，早退{rec.early_leave_display}次），"
-                        f"已超过阈值（{config.NOTIFY_THRESHOLD}次），请留意。"
+                        f"已超过阈值（{threshold}次），请留意。"
                     )
                     await ding_client.send_work_notification(
                         user_ids=[rec.user_id], title="考勤异常提醒", text=notify_msg,
