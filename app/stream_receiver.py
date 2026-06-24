@@ -77,27 +77,14 @@ def start_stream_client():
         AttendanceBotHandler(logger),
     )
 
-    # 注册连接断开自动重连
-    def on_error(e):
-        logger.warning("Stream 连接异常，将自动重连: %s", e)
-
-    _client.background_task.add_done_callback(on_error)
-
-    # 在后台启动（不阻塞主线程）
+    # SDK 内部自动处理重连，无需额外逻辑
     import asyncio
     asyncio.ensure_future(_client.start())
     logger.info("🤝 Stream 客户端已启动（WebSocket 长连接，无需开放端口）")
 
 
 def stop_stream_client():
-    """停止 Stream 客户端"""
+    """停止 Stream 客户端（进程退出时 SDK 自动断开连接）"""
     global _client
-    if _client:
-        try:
-            # SDK 无 stop 方法，取消后台任务即可
-            for task in _client.background_task:
-                task.cancel()
-        except Exception:
-            pass
-        _client = None
-        logger.info("Stream 客户端已停止")
+    _client = None
+    logger.info("Stream 客户端已停止")
