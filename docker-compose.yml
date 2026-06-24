@@ -14,7 +14,7 @@ services:
     # .env 放在 docker-compose.yml 同目录下即可
     environment:
       - TZ=Asia/Shanghai
-      # 阈值通知（各周期独立配置，JSON格式）
+      # 阈值通知（各周期独立配置，也可编辑 thresholds.json）
       - NOTIFY_THRESHOLDS={"week":2,"month":8}
     env_file:
       - .env

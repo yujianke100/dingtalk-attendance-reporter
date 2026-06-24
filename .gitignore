@@ -130,6 +130,7 @@ __pypackages__/
 # Environment variables (secrets)
 .env
 targets.json
+thresholds.json
 
 # Celery stuff
 celerybeat-schedule

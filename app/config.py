@@ -52,7 +52,14 @@ PORT = int(os.getenv("PORT", "8000"))
 # 阈值通知（周期内异常次数 ≥ 阈值时，给当事人发钉钉通知）
 # JSON 格式，各周期独立配置：{"week":3, "month":9}
 # 未配置的周期或不满足阈值则不通知；设为 {} 全局关闭
-NOTIFY_THRESHOLDS = os.getenv("NOTIFY_THRESHOLDS", "{}")
+# 优先读环境变量，为空时尝试读取 thresholds.json 文件
+_NOTIFY_ENV = os.getenv("NOTIFY_THRESHOLDS", "")
+if not _NOTIFY_ENV:
+    _thr_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "thresholds.json")
+    if os.path.exists(_thr_file):
+        with open(_thr_file, "r", encoding="utf-8") as f:
+            _NOTIFY_ENV = f.read()
+NOTIFY_THRESHOLDS = _NOTIFY_ENV
 
 # =============================================================================
 # 多目标配置（JSON 数组，覆盖默认的群发/私发）
