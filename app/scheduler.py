@@ -8,8 +8,6 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from app import config
-
 logger = logging.getLogger(__name__)
 
 # 全局调度器实例
@@ -17,10 +15,10 @@ scheduler = AsyncIOScheduler()
 
 
 def _parse_schedule(spec: str) -> dict:
-    """解析 "6 12:00" → {day_of_week:6, hour:12, minute:0}"""
+    """解析 "6 12:00" → {day_of_week:6, hour:12, minute:0}，缺省周日12点"""
     parts = spec.strip().split()
-    day = int(parts[0]) if parts else config.SCHEDULE_DAY_OF_WEEK
-    time_part = parts[1] if len(parts) > 1 else f"{config.SCHEDULE_HOUR}:{config.SCHEDULE_MINUTE}"
+    day = int(parts[0]) if parts else 6
+    time_part = parts[1] if len(parts) > 1 else "12:00"
     hour, minute = (int(x) for x in time_part.split(":"))
     return {"day_of_week": day, "hour": hour, "minute": minute}
 
