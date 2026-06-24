@@ -61,7 +61,14 @@ NOTIFY_THRESHOLDS = os.getenv("NOTIFY_THRESHOLDS", "{}")
 #   {"type":"group", "webhook":"...", "period":"week", "schedule":"6 12:00"},
 #   {"type":"private", "user_ids":["..."], "period":"month", "schedule":"1 09:00"}
 # ]
-NOTIFICATION_TARGETS = os.getenv("NOTIFICATION_TARGETS", "[]")
+# 优先读环境变量，为空时尝试读取 targets.json 文件
+_NOTIFICATION_TARGETS_ENV = os.getenv("NOTIFICATION_TARGETS", "")
+if not _NOTIFICATION_TARGETS_ENV:
+    _targets_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "targets.json")
+    if os.path.exists(_targets_file):
+        with open(_targets_file, "r", encoding="utf-8") as f:
+            _NOTIFICATION_TARGETS_ENV = f.read()
+NOTIFICATION_TARGETS = _NOTIFICATION_TARGETS_ENV
 
 # =============================================================================
 # Mock 模式
