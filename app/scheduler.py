@@ -8,6 +8,8 @@ import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from app import config
+
 logger = logging.getLogger(__name__)
 
 # 全局调度器实例
@@ -62,6 +64,21 @@ def start_scheduler():
         logger.info("定时目标 %d: 每周%d %02d:%02d %s→%s",
                     i, sched["day_of_week"], sched["hour"], sched["minute"],
                     t.get("period","?"), t.get("type","?"))
+
+    # ── 每日阈值检查（如有周期配了阈值）──
+    if any(config.NOTIFY_THRESHOLDS.get(p, 0) > 0 for p in ("week", "month")):
+        from app.handlers import check_thresholds_daily
+        scheduler.add_job(
+            check_thresholds_daily,
+            trigger="cron",
+            hour=config.CHECK_HOUR,
+            minute=config.CHECK_MINUTE,
+            id="daily_threshold_check",
+            name="每日阈值检查",
+            replace_existing=True,
+            misfire_grace_time=600,
+        )
+        logger.info("每日阈值检查: %02d:%02d", config.CHECK_HOUR, config.CHECK_MINUTE)
 
     scheduler.start()
 

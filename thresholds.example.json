@@ -1,4 +1,12 @@
 {
-  "week": 3,
-  "month": 9
+  "weights": {
+    "absence": 3,
+    "late": 1,
+    "early_leave": 1
+  },
+  "thresholds": {
+    "week": 5,
+    "month": 20
+  },
+  "check_time": "22:00"
 }

@@ -101,34 +101,75 @@ async def send_attendance_report(period: str, target_type: str = None, webhook_u
     )
     logger.info("已发送群消息")
 
-    # ── 阈值通知：按周期检查阈值，给当事人发通知 ──
-    import json as _json
-    thresholds = {}
-    try:
-        thresholds = _json.loads(config.NOTIFY_THRESHOLDS) if config.NOTIFY_THRESHOLDS.strip() else {}
-    except Exception:
-        pass
 
-    threshold = thresholds.get(summary.period, 0)
-    if threshold > 0 and summary.has_problems:
+# ── 加权计算 ──
+def calc_weighted_score(rec) -> int:
+    """按权重计算综合异常分"""
+    return (rec.absence_count * config.WEIGHT_ABSENCE
+            + rec.late_display * config.WEIGHT_LATE
+            + rec.early_leave_display * config.WEIGHT_EARLY_LEAVE)
+
+
+# ── 周期内去重 ──
+_notified: set[str] = set()
+
+def _notify_key(period: str, user_id: str) -> str:
+    """生成周期+用户的去重键，跨周期自动失效"""
+    from datetime import date
+    today = date.today()
+    if period == "week":
+        cycle = today.isocalendar()[1]  # ISO 周数，每周一重置
+    else:  # month
+        cycle = f"{today.year}_{today.month}"  # 每月重置
+    return f"{period}_{cycle}_{user_id}"
+
+
+async def check_thresholds_daily():
+    """
+    每日阈值检查。
+    对每个有阈值配置的周期（week/month），获取考勤汇总，
+    计算加权分，超阈值且本周/本月未通知过的，发通知。
+    """
+    periods_to_check = [p for p in ("week", "month") if config.NOTIFY_THRESHOLDS.get(p, 0) > 0]
+    if not periods_to_check:
+        return
+
+    logger.info("📊 每日阈值检查: periods=%s", periods_to_check)
+
+    for period in periods_to_check:
+        threshold = config.NOTIFY_THRESHOLDS[period]
+        summary = await get_attendance_summary(period)
+        if not summary.has_problems:
+            continue
+
+        period_label = {"week": "本周", "month": "本月"}.get(period, period)
+
         for rec in summary.records:
-            total = rec.absence_count + rec.late_display + rec.early_leave_display
-            if total >= threshold:
-                period_map = {"today": "今日", "week": "本周", "month": "本月"}
-                try:
-                    notify_msg = (
-                        f"### ⚠️ 考勤异常提醒\n\n"
-                        f"**统计周期**: {summary.date_range}\n\n"
-                        f"您在{period_map.get(summary.period, summary.period)}累计 **{total}** 次考勤异常"
-                        f"（缺勤{rec.absence_count}次，迟到{rec.late_display}次，早退{rec.early_leave_display}次），"
-                        f"已超过阈值（{threshold}次），请留意。"
-                    )
-                    await ding_client.send_work_notification(
-                        user_ids=[rec.user_id], title="考勤异常提醒", text=notify_msg,
-                    )
-                    logger.info("已向 %s(%s) 发送阈值通知", rec.name, rec.user_id[:8])
-                except Exception as e:
-                    logger.warning("发送阈值通知失败 %s: %s", rec.name, e)
+            score = calc_weighted_score(rec)
+            if score < threshold:
+                continue
+
+            key = _notify_key(period, rec.user_id)
+            if key in _notified:
+                continue  # 同周期已通知过，跳过
+
+            _notified.add(key)
+            notify_msg = (
+                f"### ⚠️ 考勤异常提醒\n\n"
+                f"**统计周期**: {summary.date_range}\n\n"
+                f"您在{period_label}累计异常加权分 **{score}** 分"
+                f"（缺勤{rec.absence_count}×{config.WEIGHT_ABSENCE}"
+                f" + 迟到{rec.late_display}×{config.WEIGHT_LATE}"
+                f" + 早退{rec.early_leave_display}×{config.WEIGHT_EARLY_LEAVE}），"
+                f"已超过阈值（{threshold}分），请留意。"
+            )
+            try:
+                await ding_client.send_work_notification(
+                    user_ids=[rec.user_id], title="考勤异常提醒", text=notify_msg,
+                )
+                logger.info("阈值通知 -> %s (%s分)", rec.name, score)
+            except Exception as e:
+                logger.warning("阈值通知失败 %s: %s", rec.name, e)
 
 
 async def send_scheduled_attendance(_target_index: int = 0):

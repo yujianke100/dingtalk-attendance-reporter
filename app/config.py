@@ -49,17 +49,28 @@ HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 
 # =============================================================================
-# 阈值通知（周期内异常次数 ≥ 阈值时，给当事人发钉钉通知）
-# JSON 格式，各周期独立配置：{"week":3, "month":9}
-# 未配置的周期或不满足阈值则不通知；设为 {} 全局关闭
-# 优先读环境变量，为空时尝试读取 thresholds.json 文件
-_NOTIFY_ENV = os.getenv("NOTIFY_THRESHOLDS", "")
-if not _NOTIFY_ENV:
-    _thr_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "thresholds.json")
-    if os.path.exists(_thr_file):
-        with open(_thr_file, "r", encoding="utf-8") as f:
-            _NOTIFY_ENV = f.read()
-NOTIFY_THRESHOLDS = _NOTIFY_ENV
+# 阈值通知配置（从 thresholds.json 读取）
+# =============================================================================
+import json as _json
+_THR_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "thresholds.json")
+_NOTIFY_RAW = {}
+if os.path.exists(_THR_FILE):
+    with open(_THR_FILE, "r", encoding="utf-8") as f:
+        try:
+            _NOTIFY_RAW = _json.load(f)
+        except Exception:
+            _NOTIFY_RAW = {}
+
+# 各维度的权重分（加权用）
+WEIGHT_ABSENCE = _NOTIFY_RAW.get("weights", {}).get("absence", 3)
+WEIGHT_LATE = _NOTIFY_RAW.get("weights", {}).get("late", 1)
+WEIGHT_EARLY_LEAVE = _NOTIFY_RAW.get("weights", {}).get("early_leave", 1)
+
+# 各周期的加权阈值（0=关闭）
+NOTIFY_THRESHOLDS = _NOTIFY_RAW.get("thresholds", {})
+
+# 每日检查时间（默认 22:00）
+CHECK_HOUR, CHECK_MINUTE = (int(x) for x in _NOTIFY_RAW.get("check_time", "22:00").split(":"))
 
 # =============================================================================
 # 多目标配置（JSON 数组，覆盖默认的群发/私发）
