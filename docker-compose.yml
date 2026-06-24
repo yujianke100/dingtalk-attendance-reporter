@@ -3,7 +3,7 @@ version: "3.9"
 services:
   attendance-bot:
     # ── 方式一：使用 GHCR 预构建镜像 ─────────────────
-    image: ghcr.io/yujianke100/dingtalk-attendance-reporter:main
+    image: ghcr.io/yujianke100/dingtalk-attendance-reporter:latest
     # ── 方式二：本地构建（取消下方注释） ─────────────
     # build: .
     # ─────────────────────────────────────────────────
