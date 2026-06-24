@@ -12,6 +12,8 @@ services:
     restart: unless-stopped
 
     # .env 放在 docker-compose.yml 同目录下即可
+    environment:
+      - TZ=Asia/Shanghai
     env_file:
       - .env
 

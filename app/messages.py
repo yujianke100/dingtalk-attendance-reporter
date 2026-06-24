@@ -36,13 +36,19 @@ def build_attendance_message(summary: AttendanceSummary) -> str:
     lines.append("")
 
     # ---- 表格 ----
-    lines.append("| 姓名 | 缺勤次数 | 迟到次数 | 早退次数 |")
-    lines.append("| :--- | :------: | :------: | :------: |")
+    lines.append("| 姓名 | 缺勤次数 | 迟到次数(含缺卡) | 早退次数(含缺卡) |")
+    lines.append("| :--- | :------: | :--------------: | :--------------: |")
 
     for rec in summary.records:
-        total_issues = rec.absence_count + rec.late_count + rec.early_leave_count
+        total_issues = rec.absence_count + rec.late_display + rec.early_leave_display
         flag = " 🔴" if total_issues >= 5 else " 🟡" if total_issues >= 2 else ""
-        lines.append(f"| {rec.name}{flag} | {rec.absence_count} | {rec.late_count} | {rec.early_leave_count} |")
+        late_str = str(rec.late_display)
+        early_str = str(rec.early_leave_display)
+        if rec.on_duty_lack:
+            late_str += f"(缺卡{rec.on_duty_lack})"
+        if rec.off_duty_lack:
+            early_str += f"(缺卡{rec.off_duty_lack})"
+        lines.append(f"| {rec.name}{flag} | {rec.absence_count} | {late_str} | {early_str} |")
 
     lines.append("")
     lines.append("---")

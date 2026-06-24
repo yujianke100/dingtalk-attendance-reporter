@@ -8,8 +8,9 @@
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from app import config
 from app.dingtalk import ding_client
@@ -25,9 +26,21 @@ class AttendanceRecord:
     """单条考勤汇总"""
     user_id: str
     name: str
-    absence_count: int = 0       # 缺勤次数
-    late_count: int = 0          # 迟到次数
-    early_leave_count: int = 0   # 早退次数
+    absence_count: int = 0       # 缺勤次数（全天未到）
+    late_count: int = 0          # 实际迟到次数
+    early_leave_count: int = 0   # 实际早退次数
+    on_duty_lack: int = 0        # 上班缺卡（人来了但忘打上班卡，算作迟到）
+    off_duty_lack: int = 0       # 下班缺卡（人来了但忘打下班卡，算作早退）
+
+    @property
+    def late_display(self) -> int:
+        """显示用迟到次数（含缺卡）"""
+        return self.late_count + self.on_duty_lack
+
+    @property
+    def early_leave_display(self) -> int:
+        """显示用早退次数（含缺卡）"""
+        return self.early_leave_count + self.off_duty_lack
 
 
 @dataclass
@@ -152,17 +165,13 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
 
     logger.info("考勤组成员数: %d", len(member_ids))
 
-    # 2. 生成日期范围内每天的时间戳（毫秒级）
-    import datetime as dt_module
-    from datetime import timezone
-
+    # 2. 生成日期范围内每天的时间戳（毫秒级，使用东八区）
+    tz = ZoneInfo("Asia/Shanghai")
     current = date_from
     timestamps: list[int] = []
     while current <= date_to:
         ts = int(
-            dt_module.datetime(
-                current.year, current.month, current.day, tzinfo=timezone.utc
-            ).timestamp()
+            datetime(current.year, current.month, current.day, tzinfo=tz).timestamp()
             * 1000
         )
         timestamps.append(ts)
@@ -215,7 +224,7 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
             continue
 
         if uid not in user_stats:
-            user_stats[uid] = {"name": "", "absence": 0, "late": 0, "early_leave": 0}
+            user_stats[uid] = {"name": "", "absence": 0, "late": 0, "early_leave": 0, "on_duty_lack": 0, "off_duty_lack": 0}
             work_day_count[uid] = 0
 
         schedule_id = s.get("id")
@@ -225,8 +234,11 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
 
         if check_type == "OnDuty":
             work_day_count[uid] += 1
-            if time_result in ("Absenteeism", "NotSigned"):
+            if time_result == "Absenteeism":
                 user_stats[uid]["absence"] += 1
+            elif time_result == "NotSigned":
+                # NotSigned + OffDuty 也缺勤→全天缺勤；OffDuty正常→上班缺卡
+                user_stats[uid]["on_duty_lack"] += 1
             elif time_result == "Late":
                 user_stats[uid]["late"] += 1
             elif time_result is None and check_status in ("Timeout", "NotChecked", "Absent"):
@@ -234,6 +246,8 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
         elif check_type == "OffDuty":
             if time_result == "EarlyLeave":
                 user_stats[uid]["early_leave"] += 1
+            elif time_result == "NotSigned":
+                user_stats[uid]["off_duty_lack"] += 1
 
     # 6. 并发获取用户姓名
     uid_list = list(user_stats.keys())
@@ -253,12 +267,15 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
             absence_count=info["absence"],
             late_count=info["late"],
             early_leave_count=info["early_leave"],
+            on_duty_lack=info["on_duty_lack"],
+            off_duty_lack=info["off_duty_lack"],
         )
         for uid, info in user_stats.items()
         if info["absence"] > 0 or info["late"] > 0 or info["early_leave"] > 0
+        or info["on_duty_lack"] > 0 or info["off_duty_lack"] > 0
     ]
 
-    records.sort(key=lambda r: (r.absence_count + r.late_count + r.early_leave_count), reverse=True)
+    records.sort(key=lambda r: (r.absence_count + r.late_display + r.early_leave_display), reverse=True)
     logger.info("考勤异常人数: %d", len(records))
     return records
 

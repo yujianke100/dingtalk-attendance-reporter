@@ -1,10 +1,10 @@
 """
 定时任务调度器
 ==============
-使用 APScheduler 实现每周定时推送考勤统计。
+使用 APScheduler 实现定时推送考勤统计。支持多目标分别配置不同周期。
 """
+import json
 import logging
-from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -16,38 +16,68 @@ logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
 
+def _parse_schedule(spec: str) -> dict:
+    """解析 "6 12:00" → {day_of_week:6, hour:12, minute:0}"""
+    parts = spec.strip().split()
+    day = int(parts[0]) if parts else config.SCHEDULE_DAY_OF_WEEK
+    time_part = parts[1] if len(parts) > 1 else f"{config.SCHEDULE_HOUR}:{config.SCHEDULE_MINUTE}"
+    hour, minute = (int(x) for x in time_part.split(":"))
+    return {"day_of_week": day, "hour": hour, "minute": minute}
+
+
 def start_scheduler():
     """配置并启动定时任务"""
     if scheduler.running:
         logger.warning("调度器已在运行")
         return
 
-    # 动态导入避免循环依赖
     from app.handlers import send_scheduled_attendance
 
-    # 每周日指定时间执行
-    scheduler.add_job(
-        send_scheduled_attendance,
-        trigger="cron",
-        day_of_week=config.SCHEDULE_DAY_OF_WEEK,
-        hour=config.SCHEDULE_HOUR,
-        minute=config.SCHEDULE_MINUTE,
-        id="weekly_attendance",
-        name="每周考勤推送",
-        replace_existing=True,
-        misfire_grace_time=300,  # 允许延迟 5 分钟
-    )
+    # ── 检查多目标配置 ──
+    targets = []
+    try:
+        raw = config.NOTIFICATION_TARGETS.strip()
+        if raw:
+            targets = json.loads(raw)
+    except Exception:
+        pass
+
+    if targets:
+        # 多目标模式：每个目标可独立配置 schedule
+        for i, t in enumerate(targets):
+            sched = _parse_schedule(t.get("schedule", f"{config.SCHEDULE_DAY_OF_WEEK} {config.SCHEDULE_HOUR}:{config.SCHEDULE_MINUTE}"))
+            scheduler.add_job(
+                send_scheduled_attendance,
+                trigger="cron",
+                day_of_week=sched["day_of_week"],
+                hour=sched["hour"],
+                minute=sched["minute"],
+                id=f"target_{i}",
+                name=f"目标{i}: {t.get('period','?')} {t.get('type','?')}",
+                replace_existing=True,
+                misfire_grace_time=300,
+                kwargs={"_target_index": i},
+            )
+            logger.info("多目标 %d: 每周%d %02d:%02d %s→%s",
+                        i, sched["day_of_week"], sched["hour"], sched["minute"],
+                        t.get("period","?"), t.get("type","?"))
+    else:
+        # 单目标模式
+        scheduler.add_job(
+            send_scheduled_attendance,
+            trigger="cron",
+            day_of_week=config.SCHEDULE_DAY_OF_WEEK,
+            hour=config.SCHEDULE_HOUR,
+            minute=config.SCHEDULE_MINUTE,
+            id="weekly_attendance",
+            name="每周考勤推送",
+            replace_existing=True,
+            misfire_grace_time=300,
+        )
+        logger.info("定时任务已启动: 每周%d %02d:%02d 推送考勤",
+                    config.SCHEDULE_DAY_OF_WEEK, config.SCHEDULE_HOUR, config.SCHEDULE_MINUTE)
 
     scheduler.start()
-    logger.info(
-        "定时任务已启动: 每周%d %02d:%02d 推送考勤",
-        config.SCHEDULE_DAY_OF_WEEK,
-        config.SCHEDULE_HOUR,
-        config.SCHEDULE_MINUTE,
-    )
-
-
-def stop_scheduler():
     """停止定时任务"""
     if scheduler.running:
         scheduler.shutdown(wait=False)
