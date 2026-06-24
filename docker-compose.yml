@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  attendance-bot:
+    build: .
+    image: dingtalk-attendance-bot
+    container_name: dingtalk-attendance-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    # 如需回调服务（群内 /本日考勤 命令），取消下方注释
+    # ports:
+    #   - "8000:8000"
+    # 如需纯调度模式（不占端口），取消下方注释
+    # command: ["--scheduler-only"]
