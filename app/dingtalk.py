@@ -124,23 +124,30 @@ class DingTalkClient:
             return []
 
         token = await self.get_access_token()
-        # API 需要逗号分隔的字符串
-        ids_str = ",".join(str(sid) for sid in schedule_ids)
+        all_results: list[dict] = []
+        # API 单次最多查 50 个 ID，分批查询
+        batch_size = 50
 
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://oapi.dingtalk.com/topapi/attendance/schedule/result/listbyids",
-                params={"access_token": token},
-                json={
-                    "op_user_id": config.OP_USER_ID,
-                    "schedule_ids": ids_str,
-                },
-            )
-            data = resp.json()
-            if data.get("errcode") != 0:
-                logger.warning("获取打卡结果失败: %s", data)
-                return []
-            return data.get("result", [])
+            for i in range(0, len(schedule_ids), batch_size):
+                batch = schedule_ids[i : i + batch_size]
+                ids_str = ",".join(str(sid) for sid in batch)
+                resp = await client.post(
+                    "https://oapi.dingtalk.com/topapi/attendance/schedule/result/listbyids",
+                    params={"access_token": token},
+                    json={
+                        "op_user_id": config.OP_USER_ID,
+                        "schedule_ids": ids_str,
+                    },
+                )
+                data = resp.json()
+                if data.get("errcode") == 0:
+                    all_results.extend(data.get("result", []))
+                else:
+                    logger.warning("获取打卡结果失败(批次%d): %s", i // batch_size, data)
+
+        logger.info("获取到 %d 条打卡结果", len(all_results))
+        return all_results
 
     async def get_attendance_groups(self) -> list[dict]:
         """获取考勤组列表（含排班信息）"""
