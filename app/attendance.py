@@ -276,8 +276,9 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
     ]
 
     records.sort(key=lambda r: (r.absence_count + r.late_display + r.early_leave_display), reverse=True)
-    logger.info("考勤异常人数: %d", len(records))
-    return records
+    total_people = len(user_stats)  # 考勤组总人数
+    logger.info("总人数: %d, 异常人数: %d", total_people, len(records))
+    return records, total_people
 
 
 # ---------------------------------------------------------------------------
@@ -339,19 +340,14 @@ async def get_attendance_summary(period: str) -> AttendanceSummary:
     if config.MOCK_MODE:
         logger.info("使用 Mock 模式获取考勤数据")
         records = _generate_mock_records(period)
+        total_people = len(_MOCK_USERS)
     else:
         logger.info("从钉钉 API 获取考勤数据")
         try:
-            records = await _fetch_real_records(period)
+            records, total_people = await _fetch_real_records(period)
         except Exception as e:
             logger.error("获取考勤数据失败: %s", e)
-            records = []
-
-    # 总人数（mock 模式下取 mock 用户数，真实模式下取 records + 正常人数… 简化处理）
-    if config.MOCK_MODE:
-        total_people = len(_MOCK_USERS)
-    else:
-        total_people = len(records)  # 实际应取总用户数，这里简化
+            records, total_people = [], 0
 
     return AttendanceSummary(
         period=period,
