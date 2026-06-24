@@ -2,14 +2,23 @@ version: "3.9"
 
 services:
   attendance-bot:
-    build: .
+    # ── 方式一：使用 GHCR 预构建镜像 ─────────────────
     image: ghcr.io/yujianke100/dingtalk-attendance-reporter:main
+    # ── 方式二：本地构建（取消下方注释） ─────────────
+    # build: .
+    # ─────────────────────────────────────────────────
+
     container_name: dingtalk-attendance-bot
     restart: unless-stopped
+
+    # .env 放在 docker-compose.yml 同目录下即可
     env_file:
       - .env
-    # 如需回调服务（群内 /本日考勤 命令），取消下方注释
+
+    # 默认 Stream 模式（不占端口，推荐），无需 ports
+    # 如需 HTTP 回调模式，取消下方注释并设置 ENABLE_CALLBACK_SERVER=http
     # ports:
     #   - "8000:8000"
-    # 如需纯调度模式（不占端口），取消下方注释
+
+    # 如需仅定时推送（不接收群消息），取消下方注释
     # command: ["--scheduler-only"]

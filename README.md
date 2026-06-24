@@ -24,13 +24,19 @@
 ### 方式一：Docker Compose（推荐）
 
 ```bash
-# 1. 配置
+# 1. 克隆 / 下载项目
+git clone git@github.com:yujianke100/dingtalk-attendance-reporter.git
+cd dingtalk-attendance-reporter
+
+# 2. 配置（.env 放在 docker-compose.yml 同目录）
 cp .env.example .env
 # 编辑 .env，填入钉钉应用凭证
 
-# 2. 启动（默认 Stream 模式，不占端口，支持群命令）
+# 3. 启动（默认 Stream 模式，不占端口，支持群命令）
 docker compose up -d
 ```
+
+> 💡 `.env` 必须与 `docker-compose.yml` 在同一目录，Compose 自动读取。
 
 ### 方式二：直接运行
 

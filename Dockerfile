@@ -1,16 +1,16 @@
 # =============================================================================
-# Dockerfile — 钉钉考勤机器人
+# Dockerfile — 钉钉考勤通知机器人
 # =============================================================================
 # 构建:
-#   docker build -t dingtalk-attendance-bot .
+#   docker build -t dingtalk-attendance-reporter .
 #
-# 运行（回调服务模式，需开放端口）:
-#   docker run -d --name attendance-bot --env-file .env -p 8000:8000 \
-#     dingtalk-attendance-bot
-#
-# 运行（纯调度模式，不占端口）:
+# 运行（Stream 模式，默认，不占端口）:
 #   docker run -d --name attendance-bot --env-file .env \
-#     dingtalk-attendance-bot --scheduler-only
+#     ghcr.io/yujianke100/dingtalk-attendance-reporter:main
+#
+# 运行（仅定时推送）:
+#   docker run -d --name attendance-bot --env-file .env \
+#     ghcr.io/yujianke100/dingtalk-attendance-reporter:main --scheduler-only
 # =============================================================================
 
 FROM python:3.11-slim AS builder
