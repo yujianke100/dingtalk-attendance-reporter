@@ -3,7 +3,7 @@ version: "3.9"
 services:
   attendance-bot:
     build: .
-    image: dingtalk-attendance-bot
+    image: ghcr.io/yujianke100/dingtalk-attendance-reporter:main
     container_name: dingtalk-attendance-bot
     restart: unless-stopped
     env_file:
