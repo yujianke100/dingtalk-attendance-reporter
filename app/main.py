@@ -47,8 +47,6 @@ async def run_diagnostics():
             logger.info("  ✅ Token 获取: %s", "正常" if status["token"] else "失败")
             logger.info("  ✅ 通讯录权限: %s", "正常" if status["user_list"] else "未授权")
             logger.info("  ✅ AgentId: %s", status["agent_id"] or "未配置")
-            if not config.ROBOT_WEBHOOK_URL:
-                logger.info("  ⚠️  ROBOT_WEBHOOK_URL 未配置，群发功能不可用")
             if status["errors"]:
                 for err in status["errors"]:
                     logger.warning("  ⚠️  %s", err)

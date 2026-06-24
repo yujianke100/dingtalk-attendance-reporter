@@ -80,7 +80,7 @@ async def handle_message(
     return reply
 
 
-async def send_attendance_report(period: str, target_type: str = None, webhook_url: str = None, user_ids: list[str] = None):
+async def send_attendance_report(period: str, target_type: str = None, webhook_url: str = None, webhook_secret: str = None, user_ids: list[str] = None):
     """发送考勤报告"""
     summary = await get_attendance_summary(period)
     message = build_attendance_message(summary)
@@ -97,7 +97,7 @@ async def send_attendance_report(period: str, target_type: str = None, webhook_u
         logger.warning("Webhook URL 未配置，无法群发")
         return
     await ding_client.send_group_message_by_webhook(
-        webhook_url=webhook_url, title="考勤统计", text=message, secret=config.ROBOT_SECRET,
+        webhook_url=webhook_url, title="考勤统计", text=message, secret=webhook_secret or "",
     )
     logger.info("已发送群消息")
 
@@ -154,5 +154,6 @@ async def send_scheduled_attendance(_target_index: int = 0):
         period=t.get("period", "week"),
         target_type=t.get("type", "group"),
         webhook_url=t.get("webhook"),
+        webhook_secret=t.get("secret", ""),
         user_ids=t.get("user_ids"),
     )
