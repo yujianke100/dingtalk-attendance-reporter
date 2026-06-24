@@ -91,15 +91,15 @@ async def send_attendance_report(period: str, target_type: str = None, webhook_u
                 user_ids=user_ids, title="考勤异常通知", text=message,
             )
             logger.info("已向 %d 人发送私聊通知", len(user_ids))
-    else:
-        url = webhook_url or config.ROBOT_WEBHOOK_URL
-        if not url:
-            logger.warning("Webhook URL 未配置，无法发送")
-            return
-        await ding_client.send_group_message_by_webhook(
-            webhook_url=url, title="考勤统计", text=message, secret=config.ROBOT_SECRET,
-        )
-        logger.info("已发送群消息")
+        return
+
+    if not webhook_url:
+        logger.warning("Webhook URL 未配置，无法群发")
+        return
+    await ding_client.send_group_message_by_webhook(
+        webhook_url=webhook_url, title="考勤统计", text=message, secret=config.ROBOT_SECRET,
+    )
+    logger.info("已发送群消息")
 
     # ── 阈值通知：按周期检查阈值，给当事人发通知 ──
     import json as _json
@@ -131,44 +131,28 @@ async def send_attendance_report(period: str, target_type: str = None, webhook_u
                     logger.warning("发送阈值通知失败 %s: %s", rec.name, e)
 
 
-async def send_scheduled_attendance(_target_index: int = -1):
-    """
-    定时任务入口。
-    优先读取多目标配置 NOTIFICATION_TARGETS，其次使用默认单目标配置。
-    """
+async def send_scheduled_attendance(_target_index: int = 0):
+    """定时任务入口：读取 NOTIFICATION_TARGETS 推送指定目标"""
     import json
-    targets = json.loads(config.NOTIFICATION_TARGETS) if config.NOTIFICATION_TARGETS.strip() else []
+    raw = config.NOTIFICATION_TARGETS.strip()
+    if not raw:
+        logger.info("NOTIFICATION_TARGETS 为空，跳过定时推送")
+        return
+    try:
+        targets = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error("NOTIFICATION_TARGETS 格式错误: %s", e)
+        return
 
-    if targets and _target_index >= 0:
-        # 多目标模式：只推送指定的目标
-        t = targets[_target_index]
-        logger.info("多目标 #%d: period=%s, type=%s", _target_index, t.get("period"), t.get("type"))
-        await send_attendance_report(
-            period=t.get("period", config.DEFAULT_PERIOD),
-            target_type=t.get("type", config.DEFAULT_SEND_TYPE),
-            webhook_url=t.get("webhook"),
-            user_ids=t.get("user_ids"),
-        )
-    elif targets and _target_index < 0:
-        # 兼容旧调用（无 _target_index）
-        logger.info("多目标模式: %d 个目标", len(targets))
-        for i, t in enumerate(targets):
-            try:
-                await send_attendance_report(
-                    period=t.get("period", config.DEFAULT_PERIOD),
-                    target_type=t.get("type", config.DEFAULT_SEND_TYPE),
-                    webhook_url=t.get("webhook"),
-                    user_ids=t.get("user_ids"),
-                )
-            except Exception as e:
-                logger.error("目标推送失败: %s", e)
-    else:
-        # 单目标模式（默认）
-        logger.info("单目标模式: period=%s, type=%s", config.DEFAULT_PERIOD, config.DEFAULT_SEND_TYPE)
-        if config.DEFAULT_SEND_TYPE == "private":
-            summary = await get_attendance_summary(config.DEFAULT_PERIOD)
-            if summary.has_problems:
-                user_ids = [r.user_id for r in summary.records]
-                await send_attendance_report(config.DEFAULT_PERIOD, "private", user_ids=user_ids)
-        else:
-            await send_attendance_report(config.DEFAULT_PERIOD)
+    if _target_index < 0 or _target_index >= len(targets):
+        logger.warning("目标索引 %d 超出范围", _target_index)
+        return
+
+    t = targets[_target_index]
+    logger.info("推送目标 #%d: period=%s, type=%s", _target_index, t.get("period"), t.get("type"))
+    await send_attendance_report(
+        period=t.get("period", "week"),
+        target_type=t.get("type", "group"),
+        webhook_url=t.get("webhook"),
+        user_ids=t.get("user_ids"),
+    )

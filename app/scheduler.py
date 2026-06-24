@@ -42,40 +42,28 @@ def start_scheduler():
     except Exception:
         pass
 
-    if targets:
-        # 多目标模式：每个目标可独立配置 schedule
-        for i, t in enumerate(targets):
-            sched = _parse_schedule(t.get("schedule", f"{config.SCHEDULE_DAY_OF_WEEK} {config.SCHEDULE_HOUR}:{config.SCHEDULE_MINUTE}"))
-            scheduler.add_job(
-                send_scheduled_attendance,
-                trigger="cron",
-                day_of_week=sched["day_of_week"],
-                hour=sched["hour"],
-                minute=sched["minute"],
-                id=f"target_{i}",
-                name=f"目标{i}: {t.get('period','?')} {t.get('type','?')}",
-                replace_existing=True,
-                misfire_grace_time=300,
-                kwargs={"_target_index": i},
-            )
-            logger.info("多目标 %d: 每周%d %02d:%02d %s→%s",
-                        i, sched["day_of_week"], sched["hour"], sched["minute"],
-                        t.get("period","?"), t.get("type","?"))
-    else:
-        # 单目标模式
+    if not targets:
+        logger.info("NOTIFICATION_TARGETS 为空，不启动定时推送")
+        scheduler.start()
+        return
+
+    for i, t in enumerate(targets):
+        sched = _parse_schedule(t.get("schedule", "6 12:00"))
         scheduler.add_job(
             send_scheduled_attendance,
             trigger="cron",
-            day_of_week=config.SCHEDULE_DAY_OF_WEEK,
-            hour=config.SCHEDULE_HOUR,
-            minute=config.SCHEDULE_MINUTE,
-            id="weekly_attendance",
-            name="每周考勤推送",
+            day_of_week=sched["day_of_week"],
+            hour=sched["hour"],
+            minute=sched["minute"],
+            id=f"target_{i}",
+            name=f"目标{i}: {t.get('period','?')} {t.get('type','?')}",
             replace_existing=True,
             misfire_grace_time=300,
+            kwargs={"_target_index": i},
         )
-        logger.info("定时任务已启动: 每周%d %02d:%02d 推送考勤",
-                    config.SCHEDULE_DAY_OF_WEEK, config.SCHEDULE_HOUR, config.SCHEDULE_MINUTE)
+        logger.info("定时目标 %d: 每周%d %02d:%02d %s→%s",
+                    i, sched["day_of_week"], sched["hour"], sched["minute"],
+                    t.get("period","?"), t.get("type","?"))
 
     scheduler.start()
     """停止定时任务"""
