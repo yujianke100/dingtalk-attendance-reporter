@@ -64,6 +64,9 @@ def start_scheduler():
                     t.get("period","?"), t.get("type","?"))
 
     scheduler.start()
+
+
+def stop_scheduler():
     """停止定时任务"""
     if scheduler.running:
         scheduler.shutdown(wait=False)
