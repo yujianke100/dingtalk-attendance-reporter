@@ -225,7 +225,7 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
 
         if check_type == "OnDuty":
             work_day_count[uid] += 1
-            if time_result == "Absenteeism":
+            if time_result in ("Absenteeism", "NotSigned"):
                 user_stats[uid]["absence"] += 1
             elif time_result == "Late":
                 user_stats[uid]["late"] += 1
