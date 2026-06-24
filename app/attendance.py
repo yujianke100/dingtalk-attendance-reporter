@@ -147,23 +147,23 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
     """
     date_from, date_to = _get_date_range(period)
 
-    # 1. 从考勤组获取成员（比从部门获取更准确）
+    # 1. 从考勤组获取成员
     try:
         member_ids = await ding_client.get_attendance_group_members(
             config.ATTENDANCE_GROUP_ID
         )
     except Exception as e:
         logger.error("获取考勤组成员失败: %s", e)
-        # 降级：从部门获取
         member_ids = await ding_client.get_all_user_ids(dept_id=config.SUB_DEPT_ID)
         if not member_ids:
             member_ids = await ding_client.get_all_user_ids(dept_id=config.ROOT_DEPT_ID)
 
+    total_people = len(member_ids)
     if not member_ids:
         logger.warning("未获取到任何用户")
-        return []
+        return [], 0
 
-    logger.info("考勤组成员数: %d", len(member_ids))
+    logger.info("考勤组成员数: %d", total_people)
 
     # 2. 生成日期范围内每天的时间戳（毫秒级，使用东八区）
     tz = ZoneInfo("Asia/Shanghai")
@@ -196,7 +196,7 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
 
     if not all_schedules:
         logger.info("排班数据为空")
-        return []
+        return [], total_people
 
     logger.info("获取到 %d 条排班记录", len(all_schedules))
 
@@ -276,8 +276,7 @@ async def _fetch_real_records(period: str) -> list[AttendanceRecord]:
     ]
 
     records.sort(key=lambda r: (r.absence_count + r.late_display + r.early_leave_display), reverse=True)
-    total_people = len(user_stats)  # 考勤组总人数
-    logger.info("总人数: %d, 异常人数: %d", total_people, len(records))
+    logger.info("总人数: %d, 有排班: %d, 异常: %d", total_people, len(user_stats), len(records))
     return records, total_people
 
 
