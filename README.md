@@ -24,28 +24,29 @@
 ### 方式一：Docker Compose（推荐）
 
 ```bash
-# 1. 克隆 / 下载项目
+# 1. 克隆
 git clone git@github.com:yujianke100/dingtalk-attendance-reporter.git
 cd dingtalk-attendance-reporter
 
-# 2. 配置（.env 放在 docker-compose.yml 同目录）
-cp .env.example .env
-# 编辑 .env，填入钉钉应用凭证
+# 2. 配置
+cp .env.example .env                    # 钉钉凭证等常规配置
+cp targets.example.json targets.json    # 推送目标（哪些群/人）
+cp thresholds.example.json thresholds.json  # 阈值通知（可选）
+# 编辑以上文件填入真实值
 
-# 3. 启动（默认 Stream 模式，不占端口，支持群命令）
+# 3. 启动
 docker compose up -d
 ```
-
-> 💡 `.env` 必须与 `docker-compose.yml` 在同一目录，Compose 自动读取。
 
 ### 方式二：直接运行
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env
-# 编辑 .env
+cp targets.example.json targets.json
+cp thresholds.example.json thresholds.json
 
-# 默认 Stream 模式（推荐，不占端口）
+# Stream 模式（推荐，不占端口）
 python -m app.main
 
 # 仅定时推送（不接收群消息）
@@ -56,46 +57,63 @@ python -m app.main --scheduler-only
 
 ## ⚙️ 配置说明
 
-所有配置均通过 `.env` 文件管理，迁移只需复制一份 `.env` 即可。
+配置分布在三个文件中，各司其职：
+
+### `.env` — 应用凭证 & 基础设置
 
 ```ini
-# --- 钉钉应用凭证 ---
-DINGTALK_APP_KEY=your_app_key
-DINGTALK_APP_SECRET=your_app_secret
-DINGTALK_AGENT_ID=your_agent_id
-
-# --- 群机器人 Webhook ---
-ROBOT_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=xxx
-ROBOT_SECRET=                          # 创建时选了"加签"才需填写
-
-# ==================== 定时任务 ====================
-SCHEDULE_DAY_OF_WEEK=6                 # 0=周一 .. 6=周日
-SCHEDULE_HOUR=12                       # 时（24小时制）
-SCHEDULE_MINUTE=0                      # 分
-DEFAULT_PERIOD=week                    # today / week / month
-DEFAULT_SEND_TYPE=group                # group（群发）/ private（私发）
-
-# ==================== 考勤组 & 组织架构 ====================
-ATTENDANCE_GROUP_ID=1373082784         # 钉钉考勤组ID
-OP_USER_ID=xxx                         # 有考勤权限的员工 userId
-SUB_DEPT_ID=xxx                        # 部门ID（降级获取用户用）
-
-# ==================== HTTP回调服务 ====================
-ENABLE_CALLBACK_SERVER=stream         # stream/http/false
-# HOST=0.0.0.0
-# PORT=8000
-
-# ==================== Mock 模式 ====================
-MOCK_MODE=false                        # 开发测试用，生产环境关闭
+DINGTALK_APP_KEY=xxx          # 钉钉 AppKey
+DINGTALK_APP_SECRET=xxx       # 钉钉 AppSecret
+DINGTALK_AGENT_ID=xxx         # 应用 AgentId
+ATTENDANCE_GROUP_ID=1373082784
+OP_USER_ID=xxx                # 有考勤权限的员工 userId
+SUB_DEPT_ID=xxx               # 部门ID
+ENABLE_CALLBACK_SERVER=stream # 运行模式
+MOCK_MODE=false
 ```
+
+### `targets.json` — 定时推送目标
+
+```json
+[
+  {
+    "type": "group",
+    "webhook": "https://oapi.dingtalk.com/robot/send?access_token=xxx",
+    "period": "week",
+    "schedule": "5 12:00",
+    "secret": ""
+  },
+  {
+    "type": "private",
+    "user_ids": ["userid1"],
+    "period": "month",
+    "schedule": "1 09:00"
+  }
+]
+```
+
+| 字段 | 说明 |
+|------|------|
+| `type` | `group`（群发）或 `private`（私发） |
+| `webhook` | 群机器人 Webhook URL（群发时必填） |
+| `secret` | 加签密钥（没选加签则省略） |
+| `period` | `week` / `month` / `today` |
+| `schedule` | 定时规则 `"星期 时:分"`，如 `"5 12:00"` = 周五12点 |
+| `user_ids` | 私发的 userId 列表（私发时必填） |
+
+> 数组为空或不存在的文件 = 不定时推送。群内 @机器人 发 `本日考勤` 仍会回复。
+
+### `thresholds.json` — 阈值通知（可选）
+
+```json
+{ "week": 2, "month": 8 }
+```
+
+周期内异常次数达到阈值时，自动给当事人发钉钉通知。不设则关闭。
 
 ---
 
 ## 🐳 Docker 部署详解
-
-### Stream 模式（默认，推荐）
-
-默认使用 **Stream 模式**——通过 WebSocket 长连接接收钉钉消息，**完全不需要开放端口**。
 
 ```yaml
 # docker-compose.yml 默认配置
@@ -137,12 +155,17 @@ services:
 
 ### GitHub Actions 自动构建
 
-每次推送 `main` 或打 `v*` 标签时自动构建，产物存储在两个地方：
+打 `v*` 标签时自动构建 Docker 镜像并推送到 GHCR：
 
-| 产物 | 位置 | 拉取方式 |
-|------|------|----------|
-| 🐳 Docker 镜像 | **GitHub Container Registry** | `docker pull ghcr.io/zjgsu-scie-302/sign-in-notification-bot:main` |
-| 📦 压缩包 | **Actions Artifact** | Actions 页面直接下载 `.tar.gz` |
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+| 标签 | 拉取命令 |
+|------|----------|
+| `v1.0.0` | `docker pull ghcr.io/yujianke100/dingtalk-attendance-reporter:v1.0.0` |
+| `latest` | `docker pull ghcr.io/yujianke100/dingtalk-attendance-reporter:latest` |
 
 自动使用 GitHub 内置 `GITHUB_TOKEN` 鉴权，**无需配置任何 Secrets**。
 
@@ -208,8 +231,12 @@ curl -X POST http://localhost:8000/trigger \
 │   ├── scheduler.py      # APScheduler 定时任务
 │   ├── stream_receiver.py# Stream WebSocket 消息接收
 │   └── main.py           # 入口（Stream/调度器/HTTP 三种模式）
-├── .env                  # 本地配置（不提交）
-├── .env.example          # 配置模板
+├── .env                  # 凭证等常规配置（不提交）
+├── .env.example          # 模板
+├── targets.json          # 定时推送目标（不提交）
+├── targets.example.json  # 模板
+├── thresholds.json       # 阈值通知（不提交）
+├── thresholds.example.json
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .github/workflows/    # CI 自动构建
