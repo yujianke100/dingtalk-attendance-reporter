@@ -71,6 +71,10 @@ NOTIFY_THRESHOLDS = _NOTIFY_RAW.get("thresholds", {})
 
 # 每日检查时间（默认 22:00）
 CHECK_HOUR, CHECK_MINUTE = (int(x) for x in _NOTIFY_RAW.get("check_time", "22:00").split(":"))
+# 周检查仅在周一到周五运行
+WEEKDAYS_ONLY = _NOTIFY_RAW.get("weekdays_only", True)
+# 月检查仅在每月最后一天运行
+MONTH_END_ONLY = _NOTIFY_RAW.get("month_end_only", True)
 
 # =============================================================================
 # 多目标配置（JSON 数组，覆盖默认的群发/私发）

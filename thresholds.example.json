@@ -6,7 +6,9 @@
   },
   "thresholds": {
     "week": 5,
-    "month": 20
+    "month": 0
   },
-  "check_time": "22:00"
+  "check_time": "22:00",
+  "weekdays_only": true,
+  "month_end_only": true
 }

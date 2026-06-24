@@ -127,14 +127,30 @@ def _notify_key(period: str, user_id: str) -> str:
 async def check_thresholds_daily():
     """
     每日阈值检查。
-    对每个有阈值配置的周期（week/month），获取考勤汇总，
-    计算加权分，超阈值且本周/本月未通知过的，发通知。
+    - 周检查：仅在周一到周五运行（weekdays_only=true 时）
+    - 月检查：仅在每月最后一天运行（month_end_only=true 时）
     """
-    periods_to_check = [p for p in ("week", "month") if config.NOTIFY_THRESHOLDS.get(p, 0) > 0]
+    from datetime import date, timedelta
+    today = date.today()
+    is_weekday = today.weekday() < 5
+    is_month_end = (today + timedelta(days=1)).month != today.month
+
+    periods_to_check = []
+    if config.NOTIFY_THRESHOLDS.get("week", 0) > 0:
+        if config.WEEKDAYS_ONLY and not is_weekday:
+            logger.debug("周末跳过周检查")
+        else:
+            periods_to_check.append("week")
+    if config.NOTIFY_THRESHOLDS.get("month", 0) > 0:
+        if config.MONTH_END_ONLY and not is_month_end:
+            logger.debug("非月末跳过月检查")
+        else:
+            periods_to_check.append("month")
+
     if not periods_to_check:
         return
 
-    logger.info("📊 每日阈值检查: periods=%s", periods_to_check)
+    logger.info("📊 阈值检查(%s): periods=%s", today, periods_to_check)
 
     for period in periods_to_check:
         threshold = config.NOTIFY_THRESHOLDS[period]
