@@ -7,7 +7,6 @@
 """
 import asyncio
 import logging
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -135,14 +134,16 @@ def _generate_mock_records(period: str) -> list[AttendanceRecord]:
 
 
 # ---------------------------------------------------------------------------
-# 真实数据（钉钉 API — 批量查询）
+# 真实数据（钉钉 API — 逐用户逐天查询，带重试）
 # ---------------------------------------------------------------------------
 async def _fetch_real_records(period: str) -> tuple[list[AttendanceRecord], int]:
     """
     从钉钉 API 获取真实的考勤数据并汇总。
 
-    使用 getcolumnval 批量接口，3 次 API 调用即可获取所有人整月数据，
-    替代原来的 N 人 × M 天 = 900+ 次调用方式。
+    流程:
+    1. get_attendance_group_members → 获取考勤组所有成员
+    2. schedule/listbyday → 获取排班（每人每天一次调用，带自动重试）
+    3. schedule/result/listbyids → 获取打卡结果
     """
     date_from, date_to = _get_date_range(period)
 
@@ -163,143 +164,55 @@ async def _fetch_real_records(period: str) -> tuple[list[AttendanceRecord], int]
         return [], 0
 
     logger.info("考勤组成员数: %d", total_people)
-    logger.info("查询日期范围: %s ~ %s", date_from, date_to)
 
-    # 2. 批量查询考勤数据（1-2 次 API 调用）
-    from_str = date_from.strftime("%Y-%m-%d")
-    to_str = date_to.strftime("%Y-%m-%d")
-    column_data = await ding_client.get_bulk_attendance_data(
-        member_ids, from_str, to_str
-    )
-
-    if not column_data:
-        logger.info("批量查询无数据，尝试回退到逐用户查询")
-        return await _fetch_real_records_fallback(period, member_ids, total_people, date_from, date_to)
-
-    # 3. 整理数据：按 (user_id, date) 聚合
-    # user_date_map[uid][date_str] = {check_type: time_result, ...}
-    from collections import defaultdict
-    user_date_map: dict[str, dict[str, dict[str, str]]] = defaultdict(lambda: defaultdict(dict))
-    all_dates: set[str] = set()
-
-    for entry in column_data:
-        uid = entry["user_id"]
-        date_str = entry["date"]
-        all_dates.add(date_str)
-        for cv in entry.get("column_vals", []):
-            check_type = cv.get("check_type", "")
-            time_result = cv.get("time_result", "")
-            if check_type in ("OnDuty", "OffDuty"):
-                user_date_map[uid][date_str][check_type] = time_result
-
-    logger.info("涉及 %d 个工作日，%d 人有打卡记录", len(all_dates), len(user_date_map))
-
-    # 4. 判断哪些日期是真正的工作日（至少有一人有打卡记录的日期）
-    workday_set = set(all_dates)
-
-    # 5. 按用户汇总
-    user_stats: dict[str, dict] = {}
-
-    for uid in member_ids:
-        stats: dict = {"name": "", "absence": 0, "late": 0, "early_leave": 0,
-                        "on_duty_lack": 0, "off_duty_lack": 0}
-        dates = user_date_map.get(uid, {})
-
-        if not dates:
-            # 完全没有打卡记录 → 全部工作日缺勤
-            stats["absence"] = len(workday_set)
-        else:
-            for date_str, check_types in dates.items():
-                onduty = check_types.get("OnDuty", "")
-                offduty = check_types.get("OffDuty", "")
-
-                if onduty == "Absenteeism":
-                    stats["absence"] += 1
-                elif onduty == "Late":
-                    stats["late"] += 1
-                elif onduty == "NotSigned":
-                    if offduty in ("", "NotSigned"):
-                        stats["absence"] += 1
-                    else:
-                        stats["on_duty_lack"] += 1
-
-                if offduty == "EarlyLeave":
-                    stats["early_leave"] += 1
-                elif offduty == "NotSigned":
-                    stats["off_duty_lack"] += 1
-
-            # 检测该用户在工作日中有哪些天完全没记录（全天缺勤）
-            absent_days = workday_set - set(dates.keys())
-            stats["absence"] += len(absent_days)
-
-        user_stats[uid] = stats
-
-    # 6. 并发获取用户姓名
-    uid_list = list(user_stats.keys())
-    name_tasks = [ding_client.get_user_name(uid) for uid in uid_list]
-    name_results = await asyncio.gather(*name_tasks, return_exceptions=True)
-    for uid, result in zip(uid_list, name_results):
-        if isinstance(result, str) and result:
-            user_stats[uid]["name"] = result
-        else:
-            user_stats[uid]["name"] = uid[:8]
-
-    # 7. 转换为记录列表（只保留有问题的人）
-    records = [
-        AttendanceRecord(
-            user_id=uid,
-            name=info["name"],
-            absence_count=info["absence"],
-            late_count=info["late"],
-            early_leave_count=info["early_leave"],
-            on_duty_lack=info["on_duty_lack"],
-            off_duty_lack=info["off_duty_lack"],
-        )
-        for uid, info in user_stats.items()
-        if info["absence"] > 0 or info["late"] > 0 or info["early_leave"] > 0
-        or info["on_duty_lack"] > 0 or info["off_duty_lack"] > 0
-    ]
-
-    records.sort(key=lambda r: (r.absence_count + r.late_display + r.early_leave_display), reverse=True)
-    logger.info("总人数: %d, 有打卡记录: %d, 异常: %d", total_people, len(user_date_map), len(records))
-    return records, total_people
-
-
-async def _fetch_real_records_fallback(
-    period: str, member_ids: list[str], total_people: int,
-    date_from: date, date_to: date,
-) -> tuple[list[AttendanceRecord], int]:
-    """回退方案：逐用户逐天查询（旧逻辑）"""
+    # 2. 生成日期范围内每天的时间戳
     tz = ZoneInfo("Asia/Shanghai")
-    timestamps: list[int] = []
     current = date_from
+    timestamps: list[int] = []
     while current <= date_to:
         ts = int(datetime(current.year, current.month, current.day, tzinfo=tz).timestamp() * 1000)
         timestamps.append(ts)
         current += timedelta(days=1)
 
-    logger.info("回退查询 %d 人 × %d 天 = %d 次调用",
-                len(member_ids), len(timestamps), len(member_ids) * len(timestamps))
+    logger.info("查询日期范围: %s ~ %s (%d天 × %d人 = %d次调用)",
+                date_from, date_to, len(timestamps), len(member_ids),
+                len(timestamps) * len(member_ids))
 
+    # 3. 并发获取排班数据（按天分批，而非按人分批）
+    #    这样即使限流也只丢失某一天的数据，而非某人的全部数据
     all_schedules: list[dict] = []
-    batch_size = 10
-    for i in range(0, len(member_ids), batch_size):
-        batch = member_ids[i:i + batch_size]
-        tasks = [ding_client.get_attendance_schedules(uid, timestamps) for uid in batch]
-        results = await asyncio.gather(*tasks)
-        for schedules in results:
-            all_schedules.extend(schedules)
+    for ts in timestamps:
+        batch_ok = True
+        for i in range(0, len(member_ids), 10):
+            batch = member_ids[i:i + 10]
+            tasks = [ding_client._get_schedule_for_day(uid, ts) for uid in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for r in results:
+                if isinstance(r, list):
+                    all_schedules.extend(r)
+                elif isinstance(r, Exception):
+                    logger.warning("某天排班查询异常: %s", r)
+                    batch_ok = False
+        if not batch_ok:
+            logger.warning("日期 %s 部分数据获取失败，结果可能不完整",
+                           datetime.fromtimestamp(ts / 1000, tz=tz).strftime("%Y-%m-%d"))
 
     if not all_schedules:
+        logger.info("排班数据为空")
         return [], total_people
 
+    logger.info("获取到 %d 条排班记录", len(all_schedules))
+
+    # 4. 获取打卡结果详情
     all_schedule_ids = [s["id"] for s in all_schedules]
     results_map: dict[int, dict] = {}
     if all_schedule_ids:
         results = await ding_client.get_attendance_results(all_schedule_ids)
         for r in results:
             results_map[r.get("schedule_id")] = r
+        logger.info("获取到 %d 条打卡结果", len(results))
 
+    # 5. 按用户汇总
     user_stats: dict[str, dict] = {}
     for s in all_schedules:
         uid = s["user_id"]
@@ -330,6 +243,7 @@ async def _fetch_real_records_fallback(
             elif time_result == "NotSigned":
                 user_stats[uid]["off_duty_lack"] += 1
 
+    # 6. 并发获取用户姓名
     uid_list = list(user_stats.keys())
     name_tasks = [ding_client.get_user_name(uid) for uid in uid_list]
     name_results = await asyncio.gather(*name_tasks, return_exceptions=True)
@@ -339,6 +253,7 @@ async def _fetch_real_records_fallback(
         else:
             user_stats[uid]["name"] = uid[:8]
 
+    # 7. 转换为记录列表
     records = [
         AttendanceRecord(user_id=uid, name=info["name"],
                          absence_count=info["absence"], late_count=info["late"],
@@ -350,7 +265,7 @@ async def _fetch_real_records_fallback(
         or info["on_duty_lack"] > 0 or info["off_duty_lack"] > 0
     ]
     records.sort(key=lambda r: (r.absence_count + r.late_display + r.early_leave_display), reverse=True)
-    logger.info("[回退] 总人数: %d, 有排班: %d, 异常: %d", total_people, len(user_stats), len(records))
+    logger.info("总人数: %d, 有排班: %d, 异常: %d", total_people, len(user_stats), len(records))
     return records, total_people
 
 

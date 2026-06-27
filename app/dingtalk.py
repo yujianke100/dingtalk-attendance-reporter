@@ -91,9 +91,6 @@ class DingTalkClient:
         """
         获取用户指定日期的排班/打卡数据。
         date_timestamps: 毫秒级时间戳列表（每个代表一天）
-
-        注意: 此方法按用户逐天查询，大量调用时易触限流。
-        优先使用 get_bulk_attendance_data() 替代。
         """
         token = await self.get_access_token()
         all_results: list[dict] = []
@@ -141,84 +138,39 @@ class DingTalkClient:
                            user_id, fail_count, len(date_timestamps))
         return all_results
 
-    async def get_attendance_columns(self, group_id: int) -> list[str]:
-        """获取考勤组的所有列 ID（字符串列表）"""
+    async def _get_schedule_for_day(self, user_id: str, timestamp: int) -> list[dict]:
+        """查询单个用户单天的排班数据（供按天分批调用，复用 token）"""
         token = await self.get_access_token()
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                "https://oapi.dingtalk.com/topapi/attendance/getattcolumns",
-                params={"access_token": token},
-                json={"op_user_id": config.OP_USER_ID, "group_id": group_id},
-            )
-            data = resp.json()
-            if data.get("errcode") != 0:
-                logger.warning("获取考勤列定义失败: %s", data)
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        "https://oapi.dingtalk.com/topapi/attendance/schedule/listbyday",
+                        params={"access_token": token},
+                        json={
+                            "op_user_id": config.OP_USER_ID,
+                            "user_id": user_id,
+                            "date_time": timestamp,
+                        },
+                    )
+                    data = resp.json()
+                if data.get("errcode") == 0:
+                    return data.get("result", [])
+                elif data.get("errcode") == 41041:
+                    return []
+                elif data.get("errcode") in (90002, 90006) and attempt < 2:
+                    await asyncio.sleep(1 * (attempt + 1))
+                    continue
+                else:
+                    logger.warning("查询排班失败 uid=%s ts=%s: %s", user_id, timestamp, data)
+                    return []
+            except Exception as e:
+                if attempt < 2:
+                    await asyncio.sleep(1 * (attempt + 1))
+                    continue
+                logger.warning("查询排班异常 uid=%s ts=%s: %s", user_id, timestamp, e)
                 return []
-            result = data.get("result", [])
-            # API 返回纯字符串列表（列 ID），或字典列表
-            if result and isinstance(result[0], dict):
-                return [c["column_id"] for c in result]
-            return result
-
-    async def get_bulk_attendance_data(
-        self, user_ids: list[str], from_date: str, to_date: str
-    ) -> list[dict]:
-        """
-        批量获取考勤打卡数据（替代逐用户逐天查询）。
-
-        内部自动发现考勤列 ID，一次 API 调用返回所有用户指定日期范围的数据。
-        返回 [{user_id, date, column_id, column_vals: [{value, check_type, time_result}]}]
-        """
-        # 1. 发现考勤列 ID
-        col_ids = await self.get_attendance_columns(config.ATTENDANCE_GROUP_ID)
-        if not col_ids:
-            logger.warning("未获取到考勤列 ID，回退到逐用户查询")
-            return []
-
-        logger.info("考勤列 ID: %s", col_ids)
-
-        # 2. 批量查询（API 单次最多 50 人）
-        token = await self.get_access_token()
-        all_results: list[dict] = []
-        batch_size = 50
-
-        async with httpx.AsyncClient(timeout=60) as client:
-            for i in range(0, len(user_ids), batch_size):
-                batch = user_ids[i:i + batch_size]
-                for attempt in range(3):
-                    try:
-                        resp = await client.post(
-                            "https://oapi.dingtalk.com/topapi/attendance/getcolumnval",
-                            params={"access_token": token},
-                            json={
-                                "user_ids": batch,
-                                "column_ids": col_ids,
-                                "from_date": from_date,
-                                "to_date": to_date,
-                            },
-                        )
-                        data = resp.json()
-                        if data.get("errcode") == 0:
-                            all_results.extend(
-                                data.get("result", {}).get("column_list", [])
-                            )
-                            break
-                        elif data.get("errcode") in (90002, 90006):
-                            if attempt < 2:
-                                await asyncio.sleep(1 * (attempt + 1))
-                                continue
-                        else:
-                            logger.warning("批量查询考勤数据失败: %s", data)
-                            break
-                    except Exception as e:
-                        logger.warning("批量查询考勤数据异常: %s", e)
-                        if attempt < 2:
-                            await asyncio.sleep(1 * (attempt + 1))
-                            continue
-                        break
-
-        logger.info("批量获取到 %d 条考勤记录", len(all_results))
-        return all_results
+        return []
 
     async def get_attendance_results(
         self, schedule_ids: list[int]
