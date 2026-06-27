@@ -174,28 +174,15 @@ async def _fetch_real_records(period: str) -> tuple[list[AttendanceRecord], int]
         timestamps.append(ts)
         current += timedelta(days=1)
 
-    logger.info("查询日期范围: %s ~ %s (%d天 × %d人 = %d次调用)",
+    logger.info("查询日期范围: %s ~ %s (%d天, %d人, 共%d次调用)",
                 date_from, date_to, len(timestamps), len(member_ids),
-                len(timestamps) * len(member_ids))
+                len(timestamps))
 
-    # 3. 并发获取排班数据（按天分批，而非按人分批）
-    #    这样即使限流也只丢失某一天的数据，而非某人的全部数据
+    # 3. 按天批量查询排班（listbyusers，每天一次调用查所有人）
     all_schedules: list[dict] = []
     for ts in timestamps:
-        batch_ok = True
-        for i in range(0, len(member_ids), 10):
-            batch = member_ids[i:i + 10]
-            tasks = [ding_client._get_schedule_for_day(uid, ts) for uid in batch]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in results:
-                if isinstance(r, list):
-                    all_schedules.extend(r)
-                elif isinstance(r, Exception):
-                    logger.warning("某天排班查询异常: %s", r)
-                    batch_ok = False
-        if not batch_ok:
-            logger.warning("日期 %s 部分数据获取失败，结果可能不完整",
-                           datetime.fromtimestamp(ts / 1000, tz=tz).strftime("%Y-%m-%d"))
+        schedules = await ding_client.get_schedules_by_day(member_ids, ts)
+        all_schedules.extend(schedules)
 
     if not all_schedules:
         logger.info("排班数据为空")

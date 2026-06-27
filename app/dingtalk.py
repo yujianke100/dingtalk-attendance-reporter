@@ -85,92 +85,50 @@ class DingTalkClient:
 
         return members
 
-    async def get_attendance_schedules(
-        self, user_id: str, date_timestamps: list[int]
+    async def get_schedules_by_day(
+        self, user_ids: list[str], timestamp: int
     ) -> list[dict]:
         """
-        获取用户指定日期的排班/打卡数据。
-        date_timestamps: 毫秒级时间戳列表（每个代表一天）
+        查询所有用户在指定日期的排班数据。
+
+        使用 listbyday 逐个用户查询（带重试），但按天分批调用。
         """
         token = await self.get_access_token()
         all_results: list[dict] = []
-        fail_count = 0
 
-        async with httpx.AsyncClient(timeout=15) as client:
-            for ts in date_timestamps:
-                for attempt in range(3):
-                    try:
+        for uid in user_ids:
+            for attempt in range(3):
+                try:
+                    async with httpx.AsyncClient(timeout=15) as client:
                         resp = await client.post(
                             "https://oapi.dingtalk.com/topapi/attendance/schedule/listbyday",
                             params={"access_token": token},
                             json={
                                 "op_user_id": config.OP_USER_ID,
-                                "user_id": user_id,
-                                "date_time": ts,
+                                "user_id": uid,
+                                "date_time": timestamp,
                             },
                         )
                         data = resp.json()
-                        if data.get("errcode") == 0:
-                            all_results.extend(data.get("result", []))
-                            break
-                        elif data.get("errcode") == 41041:
-                            break
-                        elif data.get("errcode") in (90002, 90006):
-                            if attempt < 2:
-                                await asyncio.sleep(1 * (attempt + 1))
-                                continue
-                        else:
-                            logger.warning("获取排班数据失败 userId=%s date=%s: %s",
-                                           user_id, ts, data)
-                            fail_count += 1
-                            break
-                    except Exception as e:
-                        logger.warning("获取排班数据异常 userId=%s date=%s: %s",
-                                       user_id, ts, e)
-                        if attempt < 2:
-                            await asyncio.sleep(1 * (attempt + 1))
-                            continue
-                        fail_count += 1
+                    if data.get("errcode") == 0:
+                        all_results.extend(data.get("result", []))
                         break
+                    elif data.get("errcode") == 41041:
+                        break
+                    elif data.get("errcode") in (90002, 90006) and attempt < 2:
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    else:
+                        logger.warning("查询排班失败 uid=%s ts=%s: %s", uid, timestamp, data)
+                        break
+                except Exception as e:
+                    if attempt < 2:
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    logger.warning("查询排班异常 uid=%s ts=%s: %s", uid, timestamp, e)
+                    break
 
-        if fail_count:
-            logger.warning("用户 %s: %d/%d 天排班获取失败",
-                           user_id, fail_count, len(date_timestamps))
         return all_results
-
-    async def _get_schedule_for_day(self, user_id: str, timestamp: int) -> list[dict]:
-        """查询单个用户单天的排班数据（供按天分批调用，复用 token）"""
-        token = await self.get_access_token()
-        for attempt in range(3):
-            try:
-                async with httpx.AsyncClient(timeout=15) as client:
-                    resp = await client.post(
-                        "https://oapi.dingtalk.com/topapi/attendance/schedule/listbyday",
-                        params={"access_token": token},
-                        json={
-                            "op_user_id": config.OP_USER_ID,
-                            "user_id": user_id,
-                            "date_time": timestamp,
-                        },
-                    )
-                    data = resp.json()
-                if data.get("errcode") == 0:
-                    return data.get("result", [])
-                elif data.get("errcode") == 41041:
-                    return []
-                elif data.get("errcode") in (90002, 90006) and attempt < 2:
-                    await asyncio.sleep(1 * (attempt + 1))
-                    continue
-                else:
-                    logger.warning("查询排班失败 uid=%s ts=%s: %s", user_id, timestamp, data)
-                    return []
-            except Exception as e:
-                if attempt < 2:
-                    await asyncio.sleep(1 * (attempt + 1))
-                    continue
-                logger.warning("查询排班异常 uid=%s ts=%s: %s", user_id, timestamp, e)
-                return []
-        return []
 
     async def get_attendance_results(
         self, schedule_ids: list[int]
