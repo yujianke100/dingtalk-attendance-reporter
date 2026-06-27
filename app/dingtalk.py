@@ -141,8 +141,8 @@ class DingTalkClient:
                            user_id, fail_count, len(date_timestamps))
         return all_results
 
-    async def get_attendance_columns(self, group_id: int) -> list[dict]:
-        """获取考勤组的所有列定义，返回 [{column_id, column_name, column_alias}, ...]"""
+    async def get_attendance_columns(self, group_id: int) -> list[str]:
+        """获取考勤组的所有列 ID（字符串列表）"""
         token = await self.get_access_token()
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
@@ -154,7 +154,11 @@ class DingTalkClient:
             if data.get("errcode") != 0:
                 logger.warning("获取考勤列定义失败: %s", data)
                 return []
-            return data.get("result", [])
+            result = data.get("result", [])
+            # API 返回纯字符串列表（列 ID），或字典列表
+            if result and isinstance(result[0], dict):
+                return [c["column_id"] for c in result]
+            return result
 
     async def get_bulk_attendance_data(
         self, user_ids: list[str], from_date: str, to_date: str
@@ -166,23 +170,10 @@ class DingTalkClient:
         返回 [{user_id, date, column_id, column_vals: [{value, check_type, time_result}]}]
         """
         # 1. 发现考勤列 ID
-        columns = await self.get_attendance_columns(config.ATTENDANCE_GROUP_ID)
-        if not columns:
-            logger.warning("未获取到考勤列定义，回退到逐用户查询")
-            return []
-
-        # 筛选出考勤打卡相关的系统列（签到/签退/打卡结果等）
-        col_ids = []
-        for c in columns:
-            name = (c.get("column_name") or "").lower()
-            alias = (c.get("column_alias") or "").lower()
-            if any(kw in name or kw in alias for kw in ("checkin", "checkout", "签到", "签退", "打卡")):
-                col_ids.append(c["column_id"])
-
+        col_ids = await self.get_attendance_columns(config.ATTENDANCE_GROUP_ID)
         if not col_ids:
-            # 保底：用所有列
-            col_ids = [c["column_id"] for c in columns]
-            logger.info("未识别到考勤打卡列，使用全部 %d 个列", len(col_ids))
+            logger.warning("未获取到考勤列 ID，回退到逐用户查询")
+            return []
 
         logger.info("考勤列 ID: %s", col_ids)
 
