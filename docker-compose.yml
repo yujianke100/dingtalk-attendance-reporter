@@ -2,9 +2,9 @@ version: "3.9"
 
 services:
   attendance-bot:
-    # ── 方式一：使用 GHCR 预构建镜像 ─────────────────
+    # ── 方式一：使用 GHCR 预构建镜像（默认） ──────────
     image: ghcr.io/yujianke100/dingtalk-attendance-reporter:latest
-    # ── 方式二：本地构建（取消下方注释） ─────────────
+    # ── 方式二：本地构建（包含最新代码，取消注释） ──
     # build: .
     # ─────────────────────────────────────────────────
 
@@ -22,6 +22,11 @@ services:
     # 如需 HTTP 回调模式，取消下方注释并设置 ENABLE_CALLBACK_SERVER=http
     # ports:
     #   - "8000:8000"
+
+    # 配置文件挂载（修改 targets.json / thresholds.json 后无需重建镜像）
+    volumes:
+      - ./targets.json:/app/targets.json
+      - ./thresholds.json:/app/thresholds.json
 
     # 如需仅定时推送（不接收群消息），取消下方注释
     # command: ["--scheduler-only"]

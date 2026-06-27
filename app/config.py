@@ -4,6 +4,7 @@
 所有配置均从环境变量读取（.env 文件），方便迁移和部署。
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -52,14 +53,21 @@ PORT = int(os.getenv("PORT", "8000"))
 # 阈值通知配置（从 thresholds.json 读取）
 # =============================================================================
 import json as _json
-_THR_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "thresholds.json")
-_NOTIFY_RAW = {}
-if os.path.exists(_THR_FILE):
-    with open(_THR_FILE, "r", encoding="utf-8") as f:
-        try:
-            _NOTIFY_RAW = _json.load(f)
-        except Exception:
-            _NOTIFY_RAW = {}
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _read_config_file(name: str) -> str | None:
+    """优先从 config/ 子目录读取，其次从项目根目录读取"""
+    for base in (_PROJECT_ROOT / "config", _PROJECT_ROOT):
+        path = base / name
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    return None
+
+
+_THR_RAW = _read_config_file("thresholds.json")
+_NOTIFY_RAW = _json.loads(_THR_RAW) if _THR_RAW else {}
 
 # 各维度的权重分（加权用）
 WEIGHT_ABSENCE = _NOTIFY_RAW.get("weights", {}).get("absence", 3)
@@ -83,13 +91,12 @@ MONTH_END_ONLY = _NOTIFY_RAW.get("month_end_only", True)
 #   {"type":"group", "webhook":"...", "period":"week", "schedule":"6 12:00"},
 #   {"type":"private", "user_ids":["..."], "period":"month", "schedule":"1 09:00"}
 # ]
-# 优先读环境变量，为空时尝试读取 targets.json 文件
+# 优先读环境变量，为空时尝试读取 config/targets.json 或 targets.json
 _NOTIFICATION_TARGETS_ENV = os.getenv("NOTIFICATION_TARGETS", "")
 if not _NOTIFICATION_TARGETS_ENV:
-    _targets_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "targets.json")
-    if os.path.exists(_targets_file):
-        with open(_targets_file, "r", encoding="utf-8") as f:
-            _NOTIFICATION_TARGETS_ENV = f.read()
+    _raw = _read_config_file("targets.json")
+    if _raw:
+        _NOTIFICATION_TARGETS_ENV = _raw
 NOTIFICATION_TARGETS = _NOTIFICATION_TARGETS_ENV
 
 # =============================================================================

@@ -151,7 +151,7 @@ def create_http_app():
     app = FastAPI(
         title="钉钉考勤机器人",
         description="群发/私发本日/本周/本月考勤缺勤迟到情况",
-        version="1.0.0",
+        version="1.1.0",
         lifespan=lifespan,
     )
 

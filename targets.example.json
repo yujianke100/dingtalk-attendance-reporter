@@ -3,13 +3,13 @@
     "type": "group",
     "webhook": "https://oapi.dingtalk.com/robot/send?access_token=你的TOKEN",
     "period": "week",
-    "schedule": "4 12:00",
+    "schedule": "5 12:00",
     "secret": ""
   },
   {
     "type": "private",
     "user_ids": ["userid1"],
     "period": "month",
-    "schedule": "0 09:00"
+    "schedule": "1 09:00"
   }
 ]

@@ -17,12 +17,18 @@ scheduler = AsyncIOScheduler()
 
 
 def _parse_schedule(spec: str) -> dict:
-    """解析 "6 12:00" → {day_of_week:6, hour:12, minute:0}，缺省周日12点"""
+    """
+    解析 "5 22:00" → {day_of_week:4, hour:22, minute:0}。
+
+    用户配置中星期用 1~7 表示 周一~周日，
+    但 APScheduler 的 cron day_of_week 使用 0~6，
+    因此需要减 1 转换。缺省周日 12:00。
+    """
     parts = spec.strip().split()
-    day = int(parts[0]) if parts else 6
+    day = int(parts[0]) if parts else 7
     time_part = parts[1] if len(parts) > 1 else "12:00"
     hour, minute = (int(x) for x in time_part.split(":"))
-    return {"day_of_week": day, "hour": hour, "minute": minute}
+    return {"day_of_week": day - 1, "hour": hour, "minute": minute}
 
 
 def start_scheduler():
@@ -48,7 +54,10 @@ def start_scheduler():
         return
 
     for i, t in enumerate(targets):
-        sched = _parse_schedule(t.get("schedule", "6 12:00"))
+        raw_spec = t.get("schedule", "7 12:00")
+        parts = raw_spec.strip().split()
+        raw_day = int(parts[0])  # 用户配置的原始星期（1=周一, 7=周日）
+        sched = _parse_schedule(raw_spec)
         scheduler.add_job(
             send_scheduled_attendance,
             trigger="cron",
@@ -62,7 +71,7 @@ def start_scheduler():
             kwargs={"_target_index": i},
         )
         logger.info("定时目标 %d: 每周%d %02d:%02d %s→%s",
-                    i, sched["day_of_week"], sched["hour"], sched["minute"],
+                    i, raw_day, sched["hour"], sched["minute"],
                     t.get("period","?"), t.get("type","?"))
 
     # ── 每日阈值检查（如有周期配了阈值）──

@@ -80,14 +80,14 @@ MOCK_MODE=false
     "type": "group",
     "webhook": "https://oapi.dingtalk.com/robot/send?access_token=xxx",
     "period": "week",
-    "schedule": "4 12:00",
+    "schedule": "5 12:00",
     "secret": ""
   },
   {
     "type": "private",
     "user_ids": ["userid1"],
     "period": "month",
-    "schedule": "0 09:00"
+    "schedule": "1 09:00"
   }
 ]
 ```
@@ -98,7 +98,7 @@ MOCK_MODE=false
 | `webhook` | 群机器人 Webhook URL（群发时必填） |
 | `secret` | 加签密钥（没选加签则省略） |
 | `period` | `week` / `month` / `today` |
-| `schedule` | 定时规则 `"星期 时:分"`，星期值 **0=周一 ~ 6=周日**（APScheduler 标准），如 `"4 12:00"` = 周五12点 |
+| `schedule` | 定时规则 `"星期 时:分"`，星期 **1=周一 ~ 7=周日**，如 `"5 22:00"` = 周五22点 |
 | `user_ids` | 私发的 userId 列表（私发时必填） |
 
 > 数组为空或不存在的文件 = 不定时推送。群内 @机器人 发 `本日考勤` 仍会回复。
