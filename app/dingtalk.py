@@ -93,16 +93,17 @@ class DingTalkClient:
         """
         查询所有用户在指定日期的排班数据。
 
-        使用 listbyday 逐个用户查询（带重试），但按天分批调用。
+        使用 listbyday 逐个用户查询（带重试），按天分批并发调用。
         """
         token = await self.get_access_token()
         all_results: list[dict] = []
 
-        for uid in user_ids:
+        # 并发查所有用户，每次 10 人
+        async def _query_one(uid: str) -> list[dict]:
             for attempt in range(3):
                 try:
-                    async with httpx.AsyncClient(timeout=15) as client:
-                        resp = await client.post(
+                    async with httpx.AsyncClient(timeout=15) as c:
+                        resp = await c.post(
                             "https://oapi.dingtalk.com/topapi/attendance/schedule/listbyday",
                             params={"access_token": token},
                             json={
@@ -113,22 +114,27 @@ class DingTalkClient:
                         )
                         data = resp.json()
                     if data.get("errcode") == 0:
-                        all_results.extend(data.get("result", []))
-                        break
-                    elif data.get("errcode") == 41041:
-                        break
-                    elif data.get("errcode") in (90002, 90006) and attempt < 2:
+                        return data.get("result", [])
+                    if data.get("errcode") == 41041:
+                        return []
+                    if data.get("errcode") in (90002, 90006) and attempt < 2:
                         await asyncio.sleep(1 * (attempt + 1))
                         continue
-                    else:
-                        logger.warning("查询排班失败 uid=%s ts=%s: %s", uid, timestamp, data)
-                        break
+                    logger.warning("查询排班失败 uid=%s ts=%s: %s", uid, timestamp, data)
+                    return []
                 except Exception as e:
                     if attempt < 2:
                         await asyncio.sleep(1 * (attempt + 1))
                         continue
                     logger.warning("查询排班异常 uid=%s ts=%s: %s", uid, timestamp, e)
-                    break
+                    return []
+            return []
+
+        for i in range(0, len(user_ids), 10):
+            batch = user_ids[i:i + 10]
+            results = await asyncio.gather(*[_query_one(u) for u in batch])
+            for r in results:
+                all_results.extend(r)
 
         return all_results
 

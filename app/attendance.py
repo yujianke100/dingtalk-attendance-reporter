@@ -175,9 +175,15 @@ async def _fetch_real_records(period: str) -> tuple[list[AttendanceRecord], int]
         timestamps.append(ts)
         current += timedelta(days=1)
 
-    logger.info("查询日期范围: %s ~ %s (%d天, %d人, 共%d次调用)",
-                date_from, date_to, len(timestamps), len(member_ids),
-                len(timestamps))
+    logger.info("查询日期范围: %s ~ %s (%d天, %d人)",
+                date_from, date_to, len(timestamps), len(member_ids))
+    # 估算 API 调用量
+    est_schedule = len(timestamps) * len(member_ids)  # listbyday
+    cached = bool(ding_client._user_cache)
+    logger.info("预估API调用: 排班%d + 打卡结果 + 用户信息(%s) ≈ %d",
+                est_schedule,
+                "已缓存" if cached else "首次需查",
+                est_schedule + (0 if cached else len(member_ids)) + 1)
 
     # 3. 按天批量查询排班（listbyusers，每天一次调用查所有人）
     all_schedules: list[dict] = []
