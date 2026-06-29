@@ -25,6 +25,7 @@ class DingTalkClient:
     def __init__(self):
         self._token: Optional[str] = None
         self._token_expires_at: float = 0
+        self._dept_cache: dict[int, tuple[str, int]] = {}  # dept_id → (name, parent_id)
 
     # ------------------------------------------------------------------
     # 认证
@@ -209,6 +210,11 @@ class DingTalkClient:
 
     async def get_user_name(self, user_id: str) -> str:
         """根据 userId 获取用户姓名"""
+        name, _ = await self.get_user_info(user_id)
+        return name
+
+    async def get_user_info(self, user_id: str) -> tuple[str, list[int]]:
+        """返回 (name, dept_ids)"""
         token = await self.get_access_token()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -218,8 +224,30 @@ class DingTalkClient:
             )
             data = resp.json()
             if data.get("errcode") != 0:
-                return user_id
-            return data.get("result", {}).get("name", user_id)
+                return user_id, []
+            result = data.get("result", {})
+            return result.get("name", user_id), result.get("dept_id_list", [])
+
+    async def get_dept_name(self, dept_id: int) -> str:
+        """获取部门名称（带缓存）"""
+        # 先查缓存
+        if dept_id in self._dept_cache:
+            return self._dept_cache[dept_id][0]
+        token = await self.get_access_token()
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://oapi.dingtalk.com/topapi/v2/department/get",
+                params={"access_token": token},
+                json={"dept_id": dept_id, "language": "zh_CN"},
+            )
+            data = resp.json()
+            if data.get("errcode") != 0:
+                return str(dept_id)
+            result = data.get("result", {})
+            name = result.get("name", str(dept_id))
+            parent_id = result.get("parent_id", 1)
+            self._dept_cache[dept_id] = (name, parent_id)
+            return name
 
     # ------------------------------------------------------------------
     # 消息发送

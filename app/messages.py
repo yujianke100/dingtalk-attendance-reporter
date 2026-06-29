@@ -3,14 +3,13 @@
 ==========
 将考勤汇总数据格式化为钉钉 Markdown 消息。
 """
+from collections import OrderedDict
 from app.attendance import AttendanceSummary
 
 
 def build_attendance_message(summary: AttendanceSummary) -> str:
     """
-    构建考勤统计 Markdown 消息。
-
-    钉钉支持的 Markdown 语法有限，表格需用标准 Markdown 表格格式。
+    构建考勤统计 Markdown 消息，按最低一级组织单元分组显示。
     """
     lines: list[str] = []
 
@@ -35,22 +34,31 @@ def build_attendance_message(summary: AttendanceSummary) -> str:
     lines.append(f"👥 总人数: **{summary.total_people}** 人  |  ⚠️ 有异常: **{summary.problem_people}** 人")
     lines.append("")
 
-    # ---- 表格 ----
-    lines.append("| 姓名 | 缺勤次数 | 迟到次数(含缺卡) | 早退次数(含缺卡) |")
-    lines.append("| :--- | :------: | :--------------: | :--------------: |")
-
+    # ---- 按部门分组 ----
+    dept_groups: dict[str, list] = OrderedDict()
     for rec in summary.records:
-        total_issues = rec.absence_count + rec.late_display + rec.early_leave_display
-        flag = " 🔴" if total_issues >= 5 else " 🟡" if total_issues >= 2 else ""
-        late_str = str(rec.late_display)
-        early_str = str(rec.early_leave_display)
-        if rec.on_duty_lack:
-            late_str += f"(缺卡{rec.on_duty_lack})"
-        if rec.off_duty_lack:
-            early_str += f"(缺卡{rec.off_duty_lack})"
-        lines.append(f"| {rec.name}{flag} | {rec.absence_count} | {late_str} | {early_str} |")
+        dept = rec.department or "未分组"
+        dept_groups.setdefault(dept, []).append(rec)
 
-    lines.append("")
+    for dept_name, group in dept_groups.items():
+        lines.append(f"### 📁 {dept_name}")
+        lines.append("")
+        lines.append("| 姓名 | 缺勤次数 | 迟到次数(含缺卡) | 早退次数(含缺卡) |")
+        lines.append("| :--- | :------: | :--------------: | :--------------: |")
+
+        for rec in group:
+            total_issues = rec.absence_count + rec.late_display + rec.early_leave_display
+            flag = " 🔴" if total_issues >= 5 else " 🟡" if total_issues >= 2 else ""
+            late_str = str(rec.late_display)
+            early_str = str(rec.early_leave_display)
+            if rec.on_duty_lack:
+                late_str += f"(缺卡{rec.on_duty_lack})"
+            if rec.off_duty_lack:
+                early_str += f"(缺卡{rec.off_duty_lack})"
+            lines.append(f"| {rec.name}{flag} | {rec.absence_count} | {late_str} | {early_str} |")
+
+        lines.append("")
+
     lines.append("---")
     lines.append(f"🕐 生成时间: {_now_string()}")
 

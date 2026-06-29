@@ -26,11 +26,12 @@ class AttendanceRecord:
     """单条考勤汇总"""
     user_id: str
     name: str
-    absence_count: int = 0       # 缺勤次数（全天未到）
-    late_count: int = 0          # 实际迟到次数
-    early_leave_count: int = 0   # 实际早退次数
-    on_duty_lack: int = 0        # 上班缺卡（人来了但忘打上班卡，算作迟到）
-    off_duty_lack: int = 0       # 下班缺卡（人来了但忘打下班卡，算作早退）
+    department: str = ""           # 最低一级组织单元名称
+    absence_count: int = 0         # 缺勤次数（全天未到）
+    late_count: int = 0            # 实际迟到次数
+    early_leave_count: int = 0     # 实际早退次数
+    on_duty_lack: int = 0          # 上班缺卡
+    off_duty_lack: int = 0         # 下班缺卡
 
     @property
     def late_display(self) -> int:
@@ -230,19 +231,59 @@ async def _fetch_real_records(period: str) -> tuple[list[AttendanceRecord], int]
             elif time_result == "NotSigned":
                 user_stats[uid]["off_duty_lack"] += 1
 
-    # 6. 并发获取用户姓名
+    # 6. 并发获取用户姓名和部门信息（分批，避免限流）
     uid_list = list(user_stats.keys())
-    name_tasks = [ding_client.get_user_name(uid) for uid in uid_list]
-    name_results = await asyncio.gather(*name_tasks, return_exceptions=True)
-    for uid, result in zip(uid_list, name_results):
-        if isinstance(result, str) and result:
-            user_stats[uid]["name"] = result
-        else:
-            user_stats[uid]["name"] = uid[:8]
+    user_dept_map: dict[str, list[int]] = {}
+    all_dept_ids: set[int] = set()
+
+    for i in range(0, len(uid_list), 10):
+        batch = uid_list[i:i + 10]
+        info_tasks = [ding_client.get_user_info(uid) for uid in batch]
+        info_results = await asyncio.gather(*info_tasks, return_exceptions=True)
+        for uid, result in zip(batch, info_results):
+            if isinstance(result, tuple):
+                name, dept_ids = result
+                user_stats[uid]["name"] = name if name else uid[:8]
+                user_dept_map[uid] = dept_ids
+                all_dept_ids.update(dept_ids)
+            else:
+                user_stats[uid]["name"] = uid[:8]
+                user_dept_map[uid] = []
+
+    # 批量获取部门 parent_id（填充缓存）
+    dept_parent_tasks = [ding_client.get_dept_name(did) for did in all_dept_ids]
+    await asyncio.gather(*dept_parent_tasks, return_exceptions=True)
+
+    # 解析最低一级部门
+    def _get_lowest_dept(dept_ids: list[int]) -> str:
+        """从用户所属部门列表中找出最低一级组织单元名称"""
+        if not dept_ids:
+            return ""
+        # 用缓存中的 parent_id 找最深层部门
+        best = dept_ids[0]
+        best_depth = 0
+        for did in dept_ids:
+            depth = 0
+            cur = did
+            seen = set()
+            while cur != 1 and cur not in seen:
+                seen.add(cur)
+                info = ding_client._dept_cache.get(cur)
+                if info is None:
+                    break
+                cur = info[1]  # parent_id
+                depth += 1
+            if depth > best_depth:
+                best_depth = depth
+                best = did
+        # 从缓存拿名称
+        cached = ding_client._dept_cache.get(best)
+        return cached[0] if cached else str(best)
 
     # 7. 转换为记录列表
     records = [
         AttendanceRecord(user_id=uid, name=info["name"],
+                         department=_get_lowest_dept(user_dept_map.get(uid, [])),
                          absence_count=info["absence"], late_count=info["late"],
                          early_leave_count=info["early_leave"],
                          on_duty_lack=info["on_duty_lack"],
