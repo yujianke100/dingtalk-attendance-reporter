@@ -20,6 +20,7 @@ COMMANDS = {
     "今日考勤": "today",
     "本周考勤": "week",
     "本月考勤": "month",
+    "更新用户": "refresh_users",
     "帮助": "help",
     "help": "help",
 }
@@ -47,8 +48,31 @@ async def build_reply(period: str) -> Optional[str]:
     """构建考勤回复内容"""
     if period == "help":
         return build_help_message()
+    if period == "refresh_users":
+        return await _refresh_users()
     summary = await get_attendance_summary(period)
     return build_attendance_message(summary)
+
+
+async def _refresh_users() -> str:
+    """清除缓存并重新拉取用户组织信息"""
+    ding_client.clear_user_cache()
+    # 重新拉取所有成员的姓名和部门
+    try:
+        member_ids = await ding_client.get_attendance_group_members(
+            config.ATTENDANCE_GROUP_ID
+        )
+    except Exception:
+        member_ids = []
+    if not member_ids:
+        return "❌ 获取考勤组成员失败，无法更新"
+
+    import asyncio
+    tasks = [ding_client.get_user_info(uid) for uid in member_ids]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    ok = sum(1 for r in results if isinstance(r, tuple) and r[0] and r[1] != [])
+    logger.info("用户信息已更新: %d/%d 人成功", ok, len(member_ids))
+    return f"✅ 用户组织信息已更新（{ok}/{len(member_ids)} 人）"
 
 
 async def handle_message(

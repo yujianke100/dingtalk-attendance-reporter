@@ -235,6 +235,12 @@ class DingTalkClient:
             self._user_cache[user_id] = (name, dept_ids)
             return name, dept_ids
 
+    def clear_user_cache(self):
+        """清除用户信息和部门缓存（用于手动刷新组织架构）"""
+        self._user_cache.clear()
+        self._dept_cache.clear()
+        logger.info("用户信息和部门缓存已清除")
+
     async def get_dept_name(self, dept_id: int) -> str:
         """获取部门名称（带缓存）"""
         # 先查缓存
