@@ -26,6 +26,7 @@ class DingTalkClient:
         self._token: Optional[str] = None
         self._token_expires_at: float = 0
         self._dept_cache: dict[int, tuple[str, int]] = {}  # dept_id → (name, parent_id)
+        self._user_cache: dict[str, tuple[str, list[int]]] = {}  # user_id → (name, dept_ids)
 
     # ------------------------------------------------------------------
     # 认证
@@ -214,7 +215,9 @@ class DingTalkClient:
         return name
 
     async def get_user_info(self, user_id: str) -> tuple[str, list[int]]:
-        """返回 (name, dept_ids)"""
+        """返回 (name, dept_ids)，结果永久缓存（姓名和部门几乎不变）"""
+        if user_id in self._user_cache:
+            return self._user_cache[user_id]
         token = await self.get_access_token()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -224,9 +227,13 @@ class DingTalkClient:
             )
             data = resp.json()
             if data.get("errcode") != 0:
+                self._user_cache[user_id] = (user_id, [])
                 return user_id, []
             result = data.get("result", {})
-            return result.get("name", user_id), result.get("dept_id_list", [])
+            name = result.get("name", user_id)
+            dept_ids = result.get("dept_id_list", [])
+            self._user_cache[user_id] = (name, dept_ids)
+            return name, dept_ids
 
     async def get_dept_name(self, dept_id: int) -> str:
         """获取部门名称（带缓存）"""
