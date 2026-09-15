@@ -26,6 +26,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+# ⚠️ httpx 会把每个请求的完整 URL 以 INFO 打进日志，而钉钉 gettoken 的 URL 里带
+# appsecret（https://oapi.dingtalk.com/gettoken?appkey=…&appsecret=…）——
+# 不压掉等于把密钥持续写进 docker logs。压到 WARNING 后只在真出错时才输出。
+for _noisy in ("httpx", "httpcore", "urllib3"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 

@@ -11,6 +11,13 @@ services:
     container_name: dingtalk-attendance-bot
     restart: unless-stopped
 
+    # 日志上限（防止日志无限增长；也曾因日志里带出过 appsecret 而需要及时清理）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     # .env 放在 docker-compose.yml 同目录下即可
     environment:
       - TZ=Asia/Shanghai

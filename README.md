@@ -259,12 +259,12 @@ A: 考勤结果（缺勤/迟到/早退）由钉钉考勤应用直接判定，本
 **Q: 如何迁移到新服务器？**
 A: 复制 `.env` 到新服务器，然后：
 ```bash
-docker pull ghcr.io/zjgsu-scie-302/sign-in-notification-bot:main
+docker pull ghcr.io/yujianke100/dingtalk-attendance-reporter:latest
 docker compose up -d
 ```
 
 **Q: Docker 镜像存在哪？**
-A: GitHub Container Registry。无需 Docker Hub 账号，仓库的 Actions 自动构建：`ghcr.io/zjgsu-scie-302/sign-in-notification-bot:main`
+A: GitHub Container Registry。无需 Docker Hub 账号，仓库的 Actions 自动构建：`ghcr.io/yujianke100/dingtalk-attendance-reporter:latest`
 
 **Q: 三种运行模式怎么选？**
 A: | 场景 | 命令 | 端口 |
